@@ -3,7 +3,7 @@ services:
     build: ./api
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:ZyygJTooKfAQ2fN0UkWbkuYj3aybilTbhgaC8q3aGV02whZe09U1BNxvzH5j97nz@host.docker.internal:5899/postgres
-      API_KEY: change-me-please
+      API_KEY: xgzMH9QLH1+i2QK4uSWHa/MP1hoILGNrI1GKlhxwfTM=
       EMBEDDING_DIM: 192
     ports:
       - "8088:8088"
