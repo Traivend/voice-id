@@ -37,7 +37,7 @@ class Speaker(Base):
     __tablename__ = "speakers"
 
     id = Column(BigInteger, primary_key=True)
-    speaker_key = Column(Text, unique=True, nullable=False)
+    speaker_id = Column("speaker_key", Text, unique=True, nullable=False)
     display_name = Column(Text)
     embedding = Column(Vector(EMBEDDING_DIM), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
@@ -142,7 +142,7 @@ def health():
 
 @app.post("/enroll")
 def enroll(
-    speaker_key: str = Query(...),
+    speaker_id: str = Query(...),
     display_name: Optional[str] = Query(None),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -155,24 +155,24 @@ def enroll(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to process audio: {str(e)}")
 
-    existing = db.query(Speaker).filter(Speaker.speaker_key == speaker_key).first()
+    existing = db.query(Speaker).filter(Speaker.speaker_id == speaker_id).first()
 
     if existing:
         existing.embedding = embedding.tolist()
         if display_name:
             existing.display_name = display_name
         db.commit()
-        return {"message": "Speaker updated", "speaker_key": speaker_key}
+        return {"message": "Speaker updated", "speaker_id": speaker_id}
 
     speaker = Speaker(
-        speaker_key=speaker_key,
+        speaker_id=speaker_id,
         display_name=display_name,
         embedding=embedding.tolist()
     )
     db.add(speaker)
     db.commit()
 
-    return {"message": "Speaker enrolled", "speaker_key": speaker_key}
+    return {"message": "Speaker enrolled", "speaker_id": speaker_id}
 
 
 @app.post("/identify")
@@ -193,7 +193,7 @@ def identify(
 
     result = db.execute(
         text("""
-            SELECT speaker_key, display_name,
+            SELECT speaker_key as speaker_id, display_name,
                    1 - (embedding <=> CAST(:embedding AS vector)) as similarity
             FROM speakers
             ORDER BY embedding <=> CAST(:embedding AS vector)
@@ -205,12 +205,12 @@ def identify(
     if result is None:
         return {"identified": False, "message": "No speakers enrolled"}
 
-    speaker_key, display_name, similarity = result
+    speaker_id, display_name, similarity = result
 
     if similarity >= threshold:
         return {
             "identified": True,
-            "speaker_key": speaker_key,
+            "speaker_id": speaker_id,
             "display_name": display_name,
             "similarity": round(float(similarity), 4)
         }
@@ -219,7 +219,7 @@ def identify(
         "identified": False,
         "message": "No match above threshold",
         "best_match": {
-            "speaker_key": speaker_key,
+            "speaker_id": speaker_id,
             "similarity": round(float(similarity), 4)
         }
     }
@@ -230,11 +230,11 @@ def list_speakers(
     db: Session = Depends(get_db),
     _: str = Depends(verify_api_key)
 ):
-    speakers = db.query(Speaker.speaker_key, Speaker.display_name, Speaker.created_at).all()
+    speakers = db.query(Speaker.speaker_id, Speaker.display_name, Speaker.created_at).all()
     return {
         "speakers": [
             {
-                "speaker_key": s.speaker_key,
+                "speaker_id": s.speaker_id,
                 "display_name": s.display_name,
                 "created_at": s.created_at.isoformat() if s.created_at else None
             }
@@ -243,16 +243,16 @@ def list_speakers(
     }
 
 
-@app.delete("/speakers/{speaker_key}")
+@app.delete("/speakers/{speaker_id}")
 def delete_speaker(
-    speaker_key: str,
+    speaker_id: str,
     db: Session = Depends(get_db),
     _: str = Depends(verify_api_key)
 ):
-    speaker = db.query(Speaker).filter(Speaker.speaker_key == speaker_key).first()
+    speaker = db.query(Speaker).filter(Speaker.speaker_id == speaker_id).first()
     if not speaker:
         raise HTTPException(status_code=404, detail="Speaker not found")
 
     db.delete(speaker)
     db.commit()
-    return {"message": "Speaker deleted", "speaker_key": speaker_key}
+    return {"message": "Speaker deleted", "speaker_id": speaker_id}
