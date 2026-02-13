@@ -1,11 +1,22 @@
 import io
+import logging
 import os
 import subprocess
+import sys
 import tempfile
 from contextlib import asynccontextmanager
 from typing import Optional
 
 import numpy as np
+
+# Configure logging with timestamps
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    stream=sys.stdout,
+)
+logger = logging.getLogger(__name__)
 import soundfile as sf
 import torch
 from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, Header
@@ -183,9 +194,9 @@ def identify(
     result = db.execute(
         text("""
             SELECT speaker_key, display_name,
-                   1 - (embedding <=> :embedding::vector) as similarity
+                   1 - (embedding <=> CAST(:embedding AS vector)) as similarity
             FROM speakers
-            ORDER BY embedding <=> :embedding::vector
+            ORDER BY embedding <=> CAST(:embedding AS vector)
             LIMIT 1
         """),
         {"embedding": str(embedding_list)}
