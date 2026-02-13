@@ -220,6 +220,7 @@ def identify(
         "message": "No match above threshold",
         "best_match": {
             "speaker_id": speaker_id,
+            "display_name": display_name,
             "similarity": round(float(similarity), 4)
         }
     }
