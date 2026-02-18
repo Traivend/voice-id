@@ -53,6 +53,14 @@ classifier: Optional[EncoderClassifier] = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global classifier
+
+    # Ensure speaker_key column is text type (may have been created as bigint)
+    with engine.connect() as conn:
+        conn.execute(text(
+            "ALTER TABLE speakers ALTER COLUMN speaker_key TYPE text USING speaker_key::text"
+        ))
+        conn.commit()
+
     classifier = EncoderClassifier.from_hparams(
         source="speechbrain/spkrec-ecapa-voxceleb",
         savedir="/tmp/speechbrain_model",
