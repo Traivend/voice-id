@@ -117,6 +117,9 @@ def convert_to_wav(input_bytes: bytes) -> bytes:
             os.unlink(output_path)
 
 
+MAX_AUDIO_SECONDS = 30  # Only use first 30s for speaker identification
+
+
 def extract_embedding(audio_bytes: bytes) -> np.ndarray:
     # Try to read directly first, fallback to ffmpeg conversion
     try:
@@ -134,6 +137,13 @@ def extract_embedding(audio_bytes: bytes) -> np.ndarray:
         resampler = T.Resample(orig_freq=sample_rate, new_freq=16000)
         audio_tensor = torch.tensor(audio_data, dtype=torch.float32)
         audio_data = resampler(audio_tensor).numpy()
+        sample_rate = 16000
+
+    # Truncate to MAX_AUDIO_SECONDS to keep inference fast on CPU
+    max_samples = MAX_AUDIO_SECONDS * sample_rate
+    if len(audio_data) > max_samples:
+        logger.info(f"Truncating audio from {len(audio_data)/sample_rate:.1f}s to {MAX_AUDIO_SECONDS}s")
+        audio_data = audio_data[:max_samples]
 
     audio_tensor = torch.tensor(audio_data, dtype=torch.float32).unsqueeze(0)
 
@@ -190,10 +200,15 @@ def identify(
     db: Session = Depends(get_db),
     _: str = Depends(verify_api_key)
 ):
+    import time
+    start = time.monotonic()
     audio_bytes = file.file.read()
+    logger.info(f"Identify: received {len(audio_bytes)} bytes ({file.filename})")
 
     try:
         embedding = extract_embedding(audio_bytes)
+        elapsed = time.monotonic() - start
+        logger.info(f"Identify: embedding extracted in {elapsed:.1f}s")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to process audio: {str(e)}")
 
