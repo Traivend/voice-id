@@ -22,7 +22,7 @@ import boto3
 import requests as http_requests
 import soundfile as sf
 import torch
-from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, Header
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile, Header
 from pydantic import BaseModel, Field
 from pgvector.sqlalchemy import Vector
 from speechbrain.inference.speaker import EncoderClassifier
@@ -264,6 +264,31 @@ def find_best_match(embedding: np.ndarray, threshold: float, db: Session) -> dic
             "similarity": round(float(similarity), 4)
         }
     }
+
+
+@app.post("/identify-raw")
+async def identify_raw(
+    request: Request,
+    threshold: float = Query(0.80, ge=0.0, le=1.0),
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_api_key)
+):
+    """Accept raw audio bytes in the request body (no multipart, no base64)."""
+    import time
+    start = time.monotonic()
+    audio_bytes = await request.body()
+    logger.info(f"Identify-raw: received {len(audio_bytes)} bytes in {time.monotonic()-start:.1f}s")
+
+    if len(audio_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Empty request body")
+
+    try:
+        embedding = extract_embedding(audio_bytes)
+        logger.info(f"Identify-raw: embedding extracted in {time.monotonic()-start:.1f}s")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to process audio: {str(e)}")
+
+    return find_best_match(embedding, threshold, db)
 
 
 class IdentifyUrlRequest(BaseModel):
