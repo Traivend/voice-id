@@ -1,3 +1,4 @@
+import base64
 import io
 import logging
 import os
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 import soundfile as sf
 import torch
 from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, Header
+from pydantic import BaseModel, Field
 from pgvector.sqlalchemy import Vector
 from speechbrain.inference.speaker import EncoderClassifier
 from sqlalchemy import Column, BigInteger, Text, DateTime, create_engine, text
@@ -240,6 +242,71 @@ def identify(
     speaker_id, display_name, similarity = result
 
     if similarity >= threshold:
+        return {
+            "identified": True,
+            "speaker_id": speaker_id,
+            "display_name": display_name,
+            "similarity": round(float(similarity), 4)
+        }
+
+    return {
+        "identified": False,
+        "message": "No match above threshold",
+        "best_match": {
+            "speaker_id": speaker_id,
+            "display_name": display_name,
+            "similarity": round(float(similarity), 4)
+        }
+    }
+
+
+class IdentifyBase64Request(BaseModel):
+    audio_base64: str = Field(..., description="Base64-encoded audio file")
+    threshold: float = Field(0.80, ge=0.0, le=1.0)
+
+
+@app.post("/identify-base64")
+def identify_base64(
+    body: IdentifyBase64Request,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_api_key)
+):
+    import time
+    start = time.monotonic()
+    logger.info("Identify-base64: request received, decoding...")
+
+    try:
+        audio_bytes = base64.b64decode(body.audio_base64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 data")
+
+    logger.info(f"Identify-base64: decoded {len(audio_bytes)} bytes in {time.monotonic()-start:.1f}s")
+
+    try:
+        embedding = extract_embedding(audio_bytes)
+        logger.info(f"Identify-base64: embedding extracted in {time.monotonic()-start:.1f}s")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to process audio: {str(e)}")
+
+    embedding_list = embedding.tolist()
+
+    result = db.execute(
+        text("""
+            SELECT speaker_key as speaker_id, display_name,
+                   1 - (embedding <=> CAST(:embedding AS vector)) as similarity
+            FROM speakers
+            ORDER BY embedding <=> CAST(:embedding AS vector)
+            LIMIT 1
+        """),
+        {"embedding": str(embedding_list)}
+    ).fetchone()
+
+    if result is None:
+        return {"identified": False, "message": "No speakers enrolled"}
+
+    speaker_id, display_name, similarity = result
+
+    if similarity >= body.threshold:
         return {
             "identified": True,
             "speaker_id": speaker_id,
