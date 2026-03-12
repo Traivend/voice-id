@@ -72,6 +72,14 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Voice ID", lifespan=lifespan)
 
 
+@app.middleware("http")
+async def log_all_requests(request, call_next):
+    logger.info(f">>> {request.method} {request.url.path} Content-Length: {request.headers.get('content-length', 'N/A')}")
+    response = await call_next(request)
+    logger.info(f"<<< {request.method} {request.url.path} -> {response.status_code}")
+    return response
+
+
 def get_db():
     db = SessionLocal()
     try:
