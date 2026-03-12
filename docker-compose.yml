@@ -7,6 +7,9 @@ services:
       API_KEY: xgzMH9QLH1+i2QK4uSWHa/MP1hoILGNrI1GKlhxwfTM=
       EMBEDDING_DIM: 192
       PYTHONUNBUFFERED: "1"
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: eu-central-1
     ports:
       - "8088:8088"
     networks:

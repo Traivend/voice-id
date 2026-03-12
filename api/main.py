@@ -18,6 +18,8 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 logger = logging.getLogger(__name__)
+import boto3
+import requests as http_requests
 import soundfile as sf
 import torch
 from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, Header
@@ -165,7 +167,7 @@ def extract_embedding(audio_bytes: bytes) -> np.ndarray:
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "model_loaded": classifier is not None, "version": "2026-03-12a"}
+    return {"status": "ok", "model_loaded": classifier is not None, "version": "2026-03-12b"}
 
 
 @app.post("/enroll")
@@ -218,11 +220,15 @@ def identify(
 
     try:
         embedding = extract_embedding(audio_bytes)
-        elapsed = time.monotonic() - start
-        logger.info(f"Identify: embedding extracted in {elapsed:.1f}s")
+        logger.info(f"Identify: embedding extracted in {time.monotonic()-start:.1f}s")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to process audio: {str(e)}")
 
+    return find_best_match(embedding, threshold, db)
+
+
+def find_best_match(embedding: np.ndarray, threshold: float, db: Session) -> dict:
+    """Shared logic: find the closest speaker match for an embedding."""
     embedding_list = embedding.tolist()
 
     result = db.execute(
@@ -260,69 +266,72 @@ def identify(
     }
 
 
-class IdentifyBase64Request(BaseModel):
-    audio_base64: str = Field(..., description="Base64-encoded audio file")
+class IdentifyUrlRequest(BaseModel):
+    url: str = Field(..., description="URL to download audio/video from")
     threshold: float = Field(0.80, ge=0.0, le=1.0)
 
 
-@app.post("/identify-base64")
-def identify_base64(
-    body: IdentifyBase64Request,
+@app.post("/identify-url")
+def identify_url(
+    body: IdentifyUrlRequest,
     db: Session = Depends(get_db),
     _: str = Depends(verify_api_key)
 ):
     import time
     start = time.monotonic()
-    logger.info("Identify-base64: request received, decoding...")
+    logger.info(f"Identify-url: downloading from {body.url[:100]}...")
 
     try:
-        audio_bytes = base64.b64decode(body.audio_base64)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid base64 data")
+        resp = http_requests.get(body.url, timeout=60, stream=True)
+        resp.raise_for_status()
+        audio_bytes = resp.content
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to download: {str(e)}")
 
-    logger.info(f"Identify-base64: decoded {len(audio_bytes)} bytes in {time.monotonic()-start:.1f}s")
+    logger.info(f"Identify-url: downloaded {len(audio_bytes)} bytes in {time.monotonic()-start:.1f}s")
 
     try:
         embedding = extract_embedding(audio_bytes)
-        logger.info(f"Identify-base64: embedding extracted in {time.monotonic()-start:.1f}s")
+        logger.info(f"Identify-url: embedding extracted in {time.monotonic()-start:.1f}s")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to process audio: {str(e)}")
 
-    embedding_list = embedding.tolist()
+    return find_best_match(embedding, body.threshold, db)
 
-    result = db.execute(
-        text("""
-            SELECT speaker_key as speaker_id, display_name,
-                   1 - (embedding <=> CAST(:embedding AS vector)) as similarity
-            FROM speakers
-            ORDER BY embedding <=> CAST(:embedding AS vector)
-            LIMIT 1
-        """),
-        {"embedding": str(embedding_list)}
-    ).fetchone()
 
-    if result is None:
-        return {"identified": False, "message": "No speakers enrolled"}
+class IdentifyS3Request(BaseModel):
+    bucket: str = Field(..., description="S3 bucket name")
+    key: str = Field(..., description="S3 object key")
+    region: str = Field("eu-central-1", description="AWS region")
+    threshold: float = Field(0.80, ge=0.0, le=1.0)
 
-    speaker_id, display_name, similarity = result
 
-    if similarity >= body.threshold:
-        return {
-            "identified": True,
-            "speaker_id": speaker_id,
-            "display_name": display_name,
-            "similarity": round(float(similarity), 4)
-        }
+@app.post("/identify-s3")
+def identify_s3(
+    body: IdentifyS3Request,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_api_key)
+):
+    import time
+    start = time.monotonic()
+    logger.info(f"Identify-s3: downloading s3://{body.bucket}/{body.key}...")
 
-    return {
-        "identified": False,
-        "message": "No match above threshold",
-        "best_match": {
-            "speaker_id": speaker_id,
-            "display_name": display_name,
-            "similarity": round(float(similarity), 4)
-        }
-    }
+    try:
+        s3 = boto3.client("s3", region_name=body.region)
+        s3_obj = s3.get_object(Bucket=body.bucket, Key=body.key)
+        audio_bytes = s3_obj["Body"].read()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to download from S3: {str(e)}")
+
+    logger.info(f"Identify-s3: downloaded {len(audio_bytes)} bytes in {time.monotonic()-start:.1f}s")
+
+    try:
+        embedding = extract_embedding(audio_bytes)
+        logger.info(f"Identify-s3: embedding extracted in {time.monotonic()-start:.1f}s")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to process audio: {str(e)}")
+
+    return find_best_match(embedding, body.threshold, db)
 
 
 @app.get("/speakers")
