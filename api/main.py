@@ -155,7 +155,7 @@ def extract_embedding(audio_bytes: bytes) -> np.ndarray:
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "model_loaded": classifier is not None}
+    return {"status": "ok", "model_loaded": classifier is not None, "version": "2026-03-12a"}
 
 
 @app.post("/enroll")
