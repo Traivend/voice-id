@@ -167,7 +167,7 @@ def extract_embedding(audio_bytes: bytes) -> np.ndarray:
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "model_loaded": classifier is not None, "version": "2026-03-12c"}
+    return {"status": "ok", "model_loaded": classifier is not None, "version": "2026-03-12d"}
 
 
 @app.post("/enroll")
@@ -289,6 +289,38 @@ async def identify_raw(
         raise HTTPException(status_code=400, detail=f"Failed to process audio: {str(e)}")
 
     return find_best_match(embedding, threshold, db)
+
+
+class IdentifyBase64Request(BaseModel):
+    audio_base64: str = Field(..., description="Base64-encoded audio file")
+    threshold: float = Field(0.80, ge=0.0, le=1.0)
+
+
+@app.post("/identify-base64")
+def identify_base64(
+    body: IdentifyBase64Request,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_api_key)
+):
+    """Accept base64-encoded audio in JSON body (workaround for n8n multipart bug)."""
+    import time
+    start = time.monotonic()
+    logger.info("Identify-base64: request received, decoding...")
+
+    try:
+        audio_bytes = base64.b64decode(body.audio_base64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 data")
+
+    logger.info(f"Identify-base64: decoded {len(audio_bytes)} bytes in {time.monotonic()-start:.1f}s")
+
+    try:
+        embedding = extract_embedding(audio_bytes)
+        logger.info(f"Identify-base64: embedding extracted in {time.monotonic()-start:.1f}s")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to process audio: {str(e)}")
+
+    return find_best_match(embedding, body.threshold, db)
 
 
 class IdentifyUrlRequest(BaseModel):
