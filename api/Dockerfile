@@ -12,6 +12,6 @@ WORKDIR /app
 COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY main.py log_config.yaml /app/
+COPY . /app/
 EXPOSE 8088
 CMD ["uvicorn", "main:app", "--host", "::", "--port", "8088", "--log-config", "/app/log_config.yaml"]
