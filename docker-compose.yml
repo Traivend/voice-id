@@ -1,6 +1,6 @@
 services:
   api:
-    build: ./api
+    build: .
     container_name: voice-id
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:ZyygJTooKfAQ2fN0UkWbkuYj3aybilTbhgaC8q3aGV02whZe09U1BNxvzH5j97nz@host.docker.internal:5899/postgres
