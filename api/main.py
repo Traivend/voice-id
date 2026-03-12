@@ -202,8 +202,9 @@ def identify(
 ):
     import time
     start = time.monotonic()
+    logger.info(f"Identify: request received, reading file {file.filename}...")
     audio_bytes = file.file.read()
-    logger.info(f"Identify: received {len(audio_bytes)} bytes ({file.filename})")
+    logger.info(f"Identify: file read complete, {len(audio_bytes)} bytes in {time.monotonic()-start:.1f}s")
 
     try:
         embedding = extract_embedding(audio_bytes)
