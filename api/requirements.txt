@@ -1,6 +1,6 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 fastapi==0.115.0
-uvicorn[standard]==0.30.6
+uvicorn[standard]==0.42.0
 numpy==2.0.1
 soundfile==0.12.1
 torch==2.4.0+cpu
